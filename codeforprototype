@@ -1,0 +1,110 @@
+import gradio as gr
+from transformers import pipeline
+
+# --- Backend Logic (Model and Functions) ---
+
+# Initialize the text simplification pipeline with a small, efficient model.
+# Using 'facebook/bart-large-cnn' is a good choice for summarization/simplification.
+# NOTE: For a real-world, privacy-focused application, you would host a local LLM
+# with solutions like Ollama or LocalAI, but this pipeline works great for a prototype.
+try:
+    simplification_pipeline = pipeline("summarization", model="facebook/bart-large-cnn")
+except Exception as e:
+    # A fallback in case the model cannot be loaded.
+    print(f"Error loading model: {e}. Using a mock function instead.")
+    def mock_simplification(text):
+        return f"Simplified text:\n\n{text[:150]}...\n\n(This is a mock response as the model failed to load. The actual output would be a summary of the text.)"
+    simplification_pipeline = mock_simplification
+
+def simplify_legal_text(document_text):
+    """
+    Takes a legal document and provides a simplified, human-readable summary.
+    Also identifies key action items and potential risks (prototype-level).
+    """
+    if not document_text.strip():
+        return "Please paste some legal text to begin."
+
+    # Use the LLM to simplify the text.
+    # We set max_length to control the output size.
+    try:
+        if callable(simplification_pipeline):
+            simplified_summary = simplification_pipeline(document_text)
+            if isinstance(simplified_summary, list) and simplified_summary:
+                simplified_summary = simplified_summary[0]['summary_text']
+            elif isinstance(simplified_summary, str):
+                pass  # It's a mock response.
+            else:
+                 simplified_summary = "Failed to simplify text. Please try a different input."
+        else:
+            simplified_summary = "Model not loaded. Using mock response. " + simplification_pipeline(document_text)
+
+    except Exception as e:
+        simplified_summary = f"An error occurred during simplification: {e}"
+
+    # --- Prototype-level Action Item and Risk Identification ---
+    # In a full-fledged application, this would also be handled by an LLM
+    # with a specific prompt template, but for a prototype, we can use keywords.
+    action_items = []
+    risks = []
+
+    # Simple keyword-based extraction for the prototype
+    if "shall be liable" in document_text.lower():
+        risks.append("Potential financial liability if terms are not met.")
+    if "indemnify and hold harmless" in document_text.lower():
+        risks.append("Client is required to protect the other party from legal claims.")
+    if "upon termination" in document_text.lower():
+        action_items.append("Review responsibilities and actions required upon contract termination.")
+    if "payment due" in document_text.lower() or "invoice within" in document_text.lower():
+        action_items.append("Track payment deadlines and invoicing schedule.")
+
+    # --- Format the final output ---
+    output = f"""
+### Simplified Summary
+{simplified_summary}
+
+### Key Action Items
+- {chr(10).join(action_items) if action_items else 'No specific action items identified.'}
+
+### Potential Risks
+- {chr(10).join(risks) if risks else 'No obvious risks identified.'}
+"""
+
+    return output
+
+# --- Gradio Interface Setup ---
+with gr.Blocks(theme=gr.themes.Soft()) as demo:
+    gr.Markdown(
+        """
+        # ⚖️ Legal-Link Prototype
+        
+        This prototype simplifies complex legal documents and highlights key information.
+        Just paste your legal text below and click "Process Document."
+        """
+    )
+
+    # Input text box for the legal document
+    input_textbox = gr.Textbox(
+        lines=15,
+        label="Paste Legal Document Here",
+        placeholder="e.g., 'This agreement shall be governed by and construed in accordance with the laws of the State of California...'"
+    )
+
+    # Output text box for the results
+    output_textbox = gr.Textbox(
+        lines=20,
+        label="Analysis Results",
+        placeholder="Results will appear here after processing."
+    )
+
+    # Button to trigger the processing
+    process_button = gr.Button("Process Document", variant="primary")
+
+    # Define the event that links the button click to the function
+    process_button.click(
+        fn=simplify_legal_text,
+        inputs=input_textbox,
+        outputs=output_textbox
+    )
+
+# Launch the Gradio app
+demo.launch(share=True, debug=True)
